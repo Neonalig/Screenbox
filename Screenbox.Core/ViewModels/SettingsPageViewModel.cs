@@ -62,6 +62,7 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     [ObservableProperty] private bool _isJellyfinBusy;
     [ObservableProperty] private string _jellyfinStatusText;
     [ObservableProperty] private string _jellyfinSyncStatusText;
+    [ObservableProperty] private bool _isJellyfinSettingsExpanded;
 
     public ObservableCollection<StorageFolder> MusicLocations { get; }
 
@@ -157,12 +158,11 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         _globalArguments = _settingsService.GlobalArguments;
         _jellyfinServerUrl = _settingsService.JellyfinServerUrl;
         _jellyfinUsername = _settingsService.JellyfinUsername;
-        _jellyfinPassword = string.Empty;
+        _jellyfinPassword = _jellyfinService.IsConnected ? "••••••••" : string.Empty;
         _isJellyfinConnected = _jellyfinService.IsConnected;
-        _jellyfinStatusText = _isJellyfinConnected
-            ? $"Connected to {_jellyfinServerUrl} as {_jellyfinUsername}. Credentials are stored securely; password entry is hidden while connected."
-            : "Not connected. Enter a Jellyfin server, username, and password to connect.";
-        _jellyfinSyncStatusText = "Sync has not run in this session.";
+        _jellyfinStatusText = GetJellyfinConnectionStatusText();
+        _jellyfinSyncStatusText = _jellyfinService.LastSyncStatus;
+        _isJellyfinSettingsExpanded = false;
         int maxVolume = _settingsService.MaxVolume;
         _volumeBoost = maxVolume switch
         {
@@ -396,9 +396,12 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
 
     public bool CanDisconnectJellyfin => !IsJellyfinBusy && IsJellyfinConnected;
 
+    public string JellyfinPasswordPlaceholderText => IsJellyfinConnected ? "••••••••" : string.Empty;
+
     partial void OnIsJellyfinConnectedChanged(bool value)
     {
         OnPropertyChanged(nameof(IsJellyfinDisconnected));
+        OnPropertyChanged(nameof(JellyfinPasswordPlaceholderText));
         NotifyJellyfinCommandState();
     }
 
@@ -414,10 +417,33 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         DisconnectJellyfinCommand.NotifyCanExecuteChanged();
     }
 
+    private string GetJellyfinConnectionStatusText()
+    {
+        return IsJellyfinConnected ? $"Connected to {JellyfinServerUrl} as {JellyfinUsername}" : "Not connected";
+    }
+
     [RelayCommand(CanExecute = nameof(CanConnectJellyfin))]
     private async Task ConnectJellyfinAsync()
     {
         if (IsJellyfinBusy) return;
+        if (string.IsNullOrWhiteSpace(JellyfinServerUrl))
+        {
+            JellyfinStatusText = "Enter a server address.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(JellyfinUsername))
+        {
+            JellyfinStatusText = "Enter a username.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(JellyfinPassword))
+        {
+            JellyfinStatusText = "Enter a password.";
+            return;
+        }
+
         IsJellyfinBusy = true;
         try
         {
@@ -428,7 +454,9 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
                 JellyfinPassword = string.Empty;
                 JellyfinServerUrl = _settingsService.JellyfinServerUrl;
                 JellyfinUsername = _settingsService.JellyfinUsername;
-                JellyfinStatusText = $"Connected to {JellyfinServerUrl} as {JellyfinUsername}. Credentials are stored securely; password entry is hidden while connected.";
+                JellyfinPassword = "••••••••";
+                JellyfinStatusText = GetJellyfinConnectionStatusText();
+                IsJellyfinSettingsExpanded = true;
                 await SyncJellyfinLibrariesCoreAsync();
             }
             else
@@ -456,8 +484,9 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         JellyfinPassword = string.Empty;
         JellyfinUsername = string.Empty;
         JellyfinServerUrl = string.Empty;
-        JellyfinStatusText = "Disconnected from Jellyfin.";
-        JellyfinSyncStatusText = "Sync is unavailable while disconnected.";
+        JellyfinStatusText = GetJellyfinConnectionStatusText();
+        JellyfinSyncStatusText = "Not connected";
+        _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
     }
 
     [RelayCommand(CanExecute = nameof(CanSyncJellyfinLibraries))]
@@ -484,8 +513,13 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         if (!_jellyfinService.IsConnected) return;
         _libraryContext.IsLoadingMusic = true;
         _libraryContext.IsLoadingVideos = true;
-        var progress = new Progress<string>(message => JellyfinSyncStatusText = message);
+        var progress = new Progress<string>(message =>
+        {
+            JellyfinSyncStatusText = message;
+            _jellyfinService.LastSyncStatus = message;
+        });
         JellyfinSyncStatusText = "Starting Jellyfin sync…";
+        _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
         try
         {
             MusicLibrary music = await _jellyfinService.FetchMusicAsync(progress);

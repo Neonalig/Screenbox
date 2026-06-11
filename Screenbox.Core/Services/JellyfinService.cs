@@ -33,6 +33,8 @@ public sealed class JellyfinService : IJellyfinService
 
     public bool IsConnected => GetConnection().IsConfigured;
 
+    public string LastSyncStatus { get; set; } = "Sync has not run in this session.";
+
     public JellyfinConnection GetConnection()
     {
         return new JellyfinConnection(_settingsService.JellyfinServerUrl, _settingsService.JellyfinAccessToken, _settingsService.JellyfinUserId, _settingsService.JellyfinDeviceId);

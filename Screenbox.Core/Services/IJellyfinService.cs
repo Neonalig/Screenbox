@@ -10,6 +10,7 @@ namespace Screenbox.Core.Services;
 public interface IJellyfinService
 {
     bool IsConnected { get; }
+    string LastSyncStatus { get; set; }
     JellyfinConnection GetConnection();
     Task<bool> AuthenticateAsync(string serverUrl, string username, string password, CancellationToken cancellationToken = default);
     void Disconnect();
