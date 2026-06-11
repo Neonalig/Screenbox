@@ -41,6 +41,10 @@ public sealed partial class MainPageViewModel : ObservableRecipient,
     [ObservableProperty] private string _searchQuery;
     [ObservableProperty] private string _criticalErrorMessage;
     [ObservableProperty] private bool _hasCriticalError;
+    [ObservableProperty] private bool _isLibraryStartupLoading;
+    [ObservableProperty] private string _libraryStartupStatusText;
+    [ObservableProperty] private double _libraryStartupProgressValue;
+    [ObservableProperty] private double _libraryStartupProgressMaximum;
 
     [ObservableProperty]
     [NotifyPropertyChangedRecipients]
@@ -77,6 +81,8 @@ public sealed partial class MainPageViewModel : ObservableRecipient,
         _playlistFactory = playlistFactory;
         _searchQuery = string.Empty;
         _criticalErrorMessage = string.Empty;
+        _libraryStartupStatusText = string.Empty;
+        _libraryStartupProgressMaximum = 4;
         SearchSuggestions = new ObservableCollection<SearchSuggestion>();
 
         IsActive = true;
@@ -276,8 +282,13 @@ public sealed partial class MainPageViewModel : ObservableRecipient,
 
     public async Task FetchLibraries()
     {
+        IsLibraryStartupLoading = true;
+        LibraryStartupProgressValue = 0;
+        LibraryStartupProgressMaximum = 4;
+        LibraryStartupStatusText = "Preparing libraries…";
         try
         {
+            LogService.Log("Preparing library watchers during startup.");
             await _libraryCoordinator.EnsureWatchingAsync();
         }
         catch (Exception)
@@ -285,15 +296,28 @@ public sealed partial class MainPageViewModel : ObservableRecipient,
             // pass
         }
 
-        List<Task> tasks = new() { FetchMusicLibraryAsync(), FetchVideosLibraryAsync(), FetchPlaylistsAsync() };
-
         try
         {
-            await Task.WhenAll(tasks);
+            await FetchMusicLibraryAsync();
+            LibraryStartupProgressValue = 1;
+            LibraryStartupStatusText = "Loading video library…";
+            await FetchVideosLibraryAsync();
+            LibraryStartupProgressValue = 2;
+            LibraryStartupStatusText = "Loading playlists…";
+            await FetchPlaylistsAsync();
+            LibraryStartupProgressValue = 3;
+            LibraryStartupStatusText = "Finishing library load…";
         }
         catch (Exception e)
         {
             LogService.Log(e);
+        }
+        finally
+        {
+            LibraryStartupProgressValue = LibraryStartupProgressMaximum;
+            LibraryStartupStatusText = string.Empty;
+            IsLibraryStartupLoading = false;
+            LogService.Log("Finished startup library load.");
         }
     }
 
@@ -301,6 +325,7 @@ public sealed partial class MainPageViewModel : ObservableRecipient,
     {
         try
         {
+            LibraryStartupStatusText = "Loading music library…";
             await _libraryCoordinator.FetchMusicAsync();
         }
         catch (UnauthorizedAccessException)
