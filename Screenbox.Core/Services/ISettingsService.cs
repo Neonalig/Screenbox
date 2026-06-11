@@ -25,6 +25,7 @@ public interface ISettingsService
     string LivelyActivePath { get; set; }
     MediaPlaybackAutoRepeatMode PersistentRepeatMode { get; set; }
     string JellyfinServerUrl { get; set; }
+    string JellyfinUsername { get; set; }
     string JellyfinAccessToken { get; set; }
     string JellyfinUserId { get; set; }
     string JellyfinDeviceId { get; set; }

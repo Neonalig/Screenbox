@@ -60,6 +60,8 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     [ObservableProperty] private string _jellyfinPassword;
     [ObservableProperty] private bool _isJellyfinConnected;
     [ObservableProperty] private bool _isJellyfinBusy;
+    [ObservableProperty] private string _jellyfinStatusText;
+    [ObservableProperty] private string _jellyfinSyncStatusText;
 
     public ObservableCollection<StorageFolder> MusicLocations { get; }
 
@@ -154,9 +156,13 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         _videoUpscaling = (int)_settingsService.VideoUpscale;
         _globalArguments = _settingsService.GlobalArguments;
         _jellyfinServerUrl = _settingsService.JellyfinServerUrl;
-        _jellyfinUsername = string.Empty;
+        _jellyfinUsername = _settingsService.JellyfinUsername;
         _jellyfinPassword = string.Empty;
         _isJellyfinConnected = _jellyfinService.IsConnected;
+        _jellyfinStatusText = _isJellyfinConnected
+            ? $"Connected to {_jellyfinServerUrl} as {_jellyfinUsername}. Credentials are stored securely; password entry is hidden while connected."
+            : "Not connected. Enter a Jellyfin server, username, and password to connect.";
+        _jellyfinSyncStatusText = "Sync has not run in this session.";
         int maxVolume = _settingsService.MaxVolume;
         _volumeBoost = maxVolume switch
         {
@@ -382,24 +388,59 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         Messenger.Send(new SettingsChangedMessage(nameof(PersistPlaybackPosition), typeof(SettingsPageViewModel)));
     }
 
-    [RelayCommand]
+    public bool IsJellyfinDisconnected => !IsJellyfinConnected;
+
+    public bool CanConnectJellyfin => !IsJellyfinBusy && !IsJellyfinConnected;
+
+    public bool CanSyncJellyfinLibraries => !IsJellyfinBusy && IsJellyfinConnected;
+
+    public bool CanDisconnectJellyfin => !IsJellyfinBusy && IsJellyfinConnected;
+
+    partial void OnIsJellyfinConnectedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsJellyfinDisconnected));
+        NotifyJellyfinCommandState();
+    }
+
+    partial void OnIsJellyfinBusyChanged(bool value)
+    {
+        NotifyJellyfinCommandState();
+    }
+
+    private void NotifyJellyfinCommandState()
+    {
+        ConnectJellyfinCommand.NotifyCanExecuteChanged();
+        SyncJellyfinLibrariesCommand.NotifyCanExecuteChanged();
+        DisconnectJellyfinCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanConnectJellyfin))]
     private async Task ConnectJellyfinAsync()
     {
         if (IsJellyfinBusy) return;
         IsJellyfinBusy = true;
         try
         {
+            JellyfinStatusText = "Connecting to Jellyfin…";
             IsJellyfinConnected = await _jellyfinService.AuthenticateAsync(JellyfinServerUrl, JellyfinUsername, JellyfinPassword);
             if (IsJellyfinConnected)
             {
                 JellyfinPassword = string.Empty;
-                await SyncJellyfinLibrariesAsync();
+                JellyfinServerUrl = _settingsService.JellyfinServerUrl;
+                JellyfinUsername = _settingsService.JellyfinUsername;
+                JellyfinStatusText = $"Connected to {JellyfinServerUrl} as {JellyfinUsername}. Credentials are stored securely; password entry is hidden while connected.";
+                await SyncJellyfinLibrariesCoreAsync();
+            }
+            else
+            {
+                JellyfinStatusText = "Connection failed. Check the server address, username, and password.";
             }
         }
         catch (Exception e)
         {
             LogService.Log(e);
             IsJellyfinConnected = false;
+            JellyfinStatusText = $"Connection failed: {e.Message}";
         }
         finally
         {
@@ -407,39 +448,67 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanDisconnectJellyfin))]
     private void DisconnectJellyfin()
     {
         _jellyfinService.Disconnect();
         IsJellyfinConnected = false;
+        JellyfinPassword = string.Empty;
+        JellyfinUsername = string.Empty;
+        JellyfinServerUrl = string.Empty;
+        JellyfinStatusText = "Disconnected from Jellyfin.";
+        JellyfinSyncStatusText = "Sync is unavailable while disconnected.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSyncJellyfinLibraries))]
     private async Task SyncJellyfinLibrariesAsync()
     {
-        if (!_jellyfinService.IsConnected || IsJellyfinBusy) return;
         IsJellyfinBusy = true;
         try
         {
-            MusicLibrary music = await _jellyfinService.FetchMusicAsync();
-            VideosLibrary videos = await _jellyfinService.FetchVideosAsync();
-            _libraryContext.Music = MergeMusic(_libraryContext.Music, music);
-            _libraryContext.Videos = MergeVideos(_libraryContext.Videos, videos);
+            await SyncJellyfinLibrariesCoreAsync();
         }
         catch (Exception e)
         {
             LogService.Log(e);
+            JellyfinSyncStatusText = $"Sync failed: {e.Message}";
         }
         finally
         {
             IsJellyfinBusy = false;
+        }
+    }
+
+    private async Task SyncJellyfinLibrariesCoreAsync()
+    {
+        if (!_jellyfinService.IsConnected) return;
+        _libraryContext.IsLoadingMusic = true;
+        _libraryContext.IsLoadingVideos = true;
+        var progress = new Progress<string>(message => JellyfinSyncStatusText = message);
+        JellyfinSyncStatusText = "Starting Jellyfin sync…";
+        try
+        {
+            MusicLibrary music = await _jellyfinService.FetchMusicAsync(progress);
+            JellyfinSyncStatusText = $"Merging {music.Songs.Count} Jellyfin songs…";
+            _libraryContext.Music = MergeMusic(_libraryContext.Music, music);
+            VideosLibrary videos = await _jellyfinService.FetchVideosAsync(progress);
+            JellyfinSyncStatusText = $"Merging {videos.Videos.Count} Jellyfin videos…";
+            _libraryContext.Videos = MergeVideos(_libraryContext.Videos, videos);
+            JellyfinSyncStatusText = $"Sync complete. Added {music.Songs.Count} songs and {videos.Videos.Count} videos from Jellyfin.";
+        }
+        finally
+        {
+            _libraryContext.IsLoadingMusic = false;
+            _libraryContext.IsLoadingVideos = false;
         }
     }
 
     private static MusicLibrary MergeMusic(MusicLibrary local, MusicLibrary remote)
     {
-        if (remote.Songs.Count == 0) return local;
-        var songs = local.Songs.Concat(remote.Songs).ToList();
+        var songs = local.Songs
+            .Where(s => s.Source is not JellyfinMediaSource)
+            .Concat(remote.Songs)
+            .ToList();
         var albumFactory = new AlbumViewModelFactory();
         var artistFactory = new ArtistViewModelFactory();
         foreach (var song in songs)
@@ -455,7 +524,11 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
 
     private static VideosLibrary MergeVideos(VideosLibrary local, VideosLibrary remote)
     {
-        return remote.Videos.Count == 0 ? local : new VideosLibrary(local.Videos.Concat(remote.Videos).ToList());
+        var videos = local.Videos
+            .Where(v => v.Source is not JellyfinMediaSource)
+            .Concat(remote.Videos)
+            .ToList();
+        return new VideosLibrary(videos);
     }
 
     [RelayCommand]

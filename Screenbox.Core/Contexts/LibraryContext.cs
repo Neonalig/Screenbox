@@ -30,5 +30,15 @@ public sealed partial class LibraryContext : ObservableRecipient
     [ObservableProperty]
     [NotifyPropertyChangedRecipients]
     private VideosLibrary _videos = VideosLibrary.Empty;
+
+    partial void OnIsLoadingMusicChanged(bool value)
+    {
+        OnMusicChanged(Music);
+    }
+
+    partial void OnIsLoadingVideosChanged(bool value)
+    {
+        OnVideosChanged(Videos);
+    }
 }
 

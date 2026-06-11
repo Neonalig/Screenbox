@@ -47,6 +47,7 @@ public sealed class SettingsService : ISettingsService
     private const string PlayerGestureSlideHorizontalKey = "Player/Gesture/SlideHorizontal";
     private const string PlayerGesturePressAndHoldKey = "Player/Gesture/PressAndHold";
     private const string JellyfinServerUrlKey = "Jellyfin/ServerUrl";
+    private const string JellyfinUsernameKey = "Jellyfin/Username";
     private const string JellyfinUserIdKey = "Jellyfin/UserId";
     private const string JellyfinDeviceIdKey = "Jellyfin/DeviceId";
     private const string JellyfinVaultResource = "Screenbox/Jellyfin";
@@ -237,6 +238,12 @@ public sealed class SettingsService : ISettingsService
         set => SetValue(JellyfinServerUrlKey, value?.TrimEnd('/') ?? string.Empty);
     }
 
+    public string JellyfinUsername
+    {
+        get => GetValue<string>(JellyfinUsernameKey) ?? string.Empty;
+        set => SetValue(JellyfinUsernameKey, value ?? string.Empty);
+    }
+
     public string JellyfinAccessToken
     {
         get => GetPasswordFromVault(JellyfinVaultResource, JellyfinUserId) ?? string.Empty;
@@ -283,6 +290,7 @@ public sealed class SettingsService : ISettingsService
         SetDefault(PlayerGestureSlideHorizontalKey, true);
         SetDefault(PlayerGesturePressAndHoldKey, true);
         SetDefault(JellyfinServerUrlKey, string.Empty);
+        SetDefault(JellyfinUsernameKey, string.Empty);
         SetDefault(JellyfinUserIdKey, string.Empty);
         SetDefault(JellyfinDeviceIdKey, Guid.NewGuid().ToString());
 

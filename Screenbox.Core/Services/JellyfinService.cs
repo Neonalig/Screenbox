@@ -56,6 +56,7 @@ public sealed class JellyfinService : IJellyfinService
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(userId)) return false;
 
         _settingsService.JellyfinServerUrl = serverUrl;
+        _settingsService.JellyfinUsername = username;
         _settingsService.JellyfinUserId = userId;
         _settingsService.JellyfinAccessToken = token;
         return true;
@@ -64,16 +65,17 @@ public sealed class JellyfinService : IJellyfinService
     public void Disconnect()
     {
         _settingsService.JellyfinServerUrl = string.Empty;
+        _settingsService.JellyfinUsername = string.Empty;
         _settingsService.JellyfinAccessToken = string.Empty;
         _settingsService.JellyfinUserId = string.Empty;
     }
 
-    public async Task<MusicLibrary> FetchMusicAsync(CancellationToken cancellationToken = default)
+    public async Task<MusicLibrary> FetchMusicAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
         var connection = GetConnection();
         if (!connection.IsConfigured) return MusicLibrary.Empty;
 
-        List<MediaViewModel> songs = await FetchItemsAsync(connection, "Audio", cancellationToken);
+        List<MediaViewModel> songs = await FetchItemsAsync(connection, "Audio", "music", progress, cancellationToken);
         var albumFactory = new AlbumViewModelFactory();
         var artistFactory = new ArtistViewModelFactory();
         foreach (MediaViewModel song in songs)
@@ -88,12 +90,12 @@ public sealed class JellyfinService : IJellyfinService
         return new MusicLibrary(songs, albumFactory.Albums, artistFactory.Artists, albumFactory.UnknownAlbum, artistFactory.UnknownArtist);
     }
 
-    public async Task<VideosLibrary> FetchVideosAsync(CancellationToken cancellationToken = default)
+    public async Task<VideosLibrary> FetchVideosAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
     {
         var connection = GetConnection();
         if (!connection.IsConfigured) return VideosLibrary.Empty;
 
-        List<MediaViewModel> videos = await FetchItemsAsync(connection, "Movie,Episode,Video", cancellationToken);
+        List<MediaViewModel> videos = await FetchItemsAsync(connection, "Movie,Episode,Video", "video", progress, cancellationToken);
         foreach (MediaViewModel video in videos) video.IsFromLibrary = true;
         return new VideosLibrary(videos);
     }
@@ -113,8 +115,9 @@ public sealed class JellyfinService : IJellyfinService
         return PostSessionAsync("/Sessions/Playing/Stopped", source, positionTicks, false, cancellationToken);
     }
 
-    private async Task<List<MediaViewModel>> FetchItemsAsync(JellyfinConnection connection, string includeItemTypes, CancellationToken cancellationToken)
+    private async Task<List<MediaViewModel>> FetchItemsAsync(JellyfinConnection connection, string includeItemTypes, string label, IProgress<string>? progress, CancellationToken cancellationToken)
     {
+        progress?.Report($"Fetching Jellyfin {label} items…");
         string url = $"{connection.ServerUrl}/Users/{connection.UserId}/Items?Recursive=true&IncludeItemTypes={Uri.EscapeDataString(includeItemTypes)}&Fields=DateCreated,Genres,MediaSources,Overview,ParentId,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,Studios,AlbumArtist,Artists,Album,IndexNumber,SeriesName&SortBy=SortName&SortOrder=Ascending";
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         ApplyAuthorizationHeader(request, connection.AccessToken);
@@ -123,14 +126,20 @@ public sealed class JellyfinService : IJellyfinService
 
         JsonObject root = JsonObject.Parse(await response.Content.ReadAsStringAsync());
         JsonArray items = root.GetNamedArray("Items", new JsonArray());
+        progress?.Report($"Processing {items.Count} Jellyfin {label} items…");
         List<MediaViewModel> result = new(items.Count);
         foreach (IJsonValue value in items)
         {
             if (value.ValueType != JsonValueType.Object) continue;
             MediaViewModel? item = MapItem(connection, value.GetObject());
-            if (item != null) result.Add(item);
+            if (item != null)
+            {
+                result.Add(item);
+                if (result.Count % 100 == 0) progress?.Report($"Processed {result.Count} of {items.Count} Jellyfin {label} items…");
+            }
         }
 
+        progress?.Report($"Loaded {result.Count} Jellyfin {label} items.");
         return result;
     }
 
