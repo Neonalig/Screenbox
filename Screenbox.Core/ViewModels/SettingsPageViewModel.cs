@@ -513,10 +513,10 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         if (!_jellyfinService.IsConnected) return;
         _libraryContext.IsLoadingMusic = true;
         _libraryContext.IsLoadingVideos = true;
-        var progress = new Progress<string>(message =>
+        var progress = new Progress<JellyfinSyncProgress>(report =>
         {
-            JellyfinSyncStatusText = message;
-            _jellyfinService.LastSyncStatus = message;
+            JellyfinSyncStatusText = report.Message;
+            _jellyfinService.LastSyncStatus = report.Message;
         });
         JellyfinSyncStatusText = "Starting Jellyfin sync…";
         _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
@@ -529,6 +529,7 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
             JellyfinSyncStatusText = $"Merging {videos.Videos.Count} Jellyfin videos…";
             _libraryContext.Videos = MergeVideos(_libraryContext.Videos, videos);
             JellyfinSyncStatusText = $"Sync complete. Added {music.Songs.Count} songs and {videos.Videos.Count} videos from Jellyfin.";
+            _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
         }
         finally
         {

@@ -72,7 +72,7 @@ public sealed class JellyfinService : IJellyfinService
         _settingsService.JellyfinUserId = string.Empty;
     }
 
-    public async Task<MusicLibrary> FetchMusicAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<MusicLibrary> FetchMusicAsync(IProgress<JellyfinSyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var connection = GetConnection();
         if (!connection.IsConfigured) return MusicLibrary.Empty;
@@ -92,7 +92,7 @@ public sealed class JellyfinService : IJellyfinService
         return new MusicLibrary(songs, albumFactory.Albums, artistFactory.Artists, albumFactory.UnknownAlbum, artistFactory.UnknownArtist);
     }
 
-    public async Task<VideosLibrary> FetchVideosAsync(IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+    public async Task<VideosLibrary> FetchVideosAsync(IProgress<JellyfinSyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var connection = GetConnection();
         if (!connection.IsConfigured) return VideosLibrary.Empty;
@@ -117,18 +117,22 @@ public sealed class JellyfinService : IJellyfinService
         return PostSessionAsync("/Sessions/Playing/Stopped", source, positionTicks, false, cancellationToken);
     }
 
-    private async Task<List<MediaViewModel>> FetchItemsAsync(JellyfinConnection connection, string includeItemTypes, string label, IProgress<string>? progress, CancellationToken cancellationToken)
+    private async Task<List<MediaViewModel>> FetchItemsAsync(JellyfinConnection connection, string includeItemTypes, string label, IProgress<JellyfinSyncProgress>? progress, CancellationToken cancellationToken)
     {
-        progress?.Report($"Fetching Jellyfin {label} items…");
-        string url = $"{connection.ServerUrl}/Users/{connection.UserId}/Items?Recursive=true&IncludeItemTypes={Uri.EscapeDataString(includeItemTypes)}&Fields=DateCreated,Genres,MediaSources,Overview,ParentId,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,Studios,AlbumArtist,Artists,Album,IndexNumber,SeriesName&SortBy=SortName&SortOrder=Ascending";
+        progress?.Report(new JellyfinSyncProgress($"Requesting Jellyfin {label} item count…"));
+        int totalCount = await FetchItemCountAsync(connection, includeItemTypes, cancellationToken);
+        progress?.Report(new JellyfinSyncProgress($"Jellyfin reports {totalCount} {label} items.", 0, totalCount));
+        string url = $"{connection.ServerUrl}/Users/{connection.UserId}/Items?Recursive=true&IncludeItemTypes={Uri.EscapeDataString(includeItemTypes)}&Fields=DateCreated,Genres,MediaSources,Overview,ParentId,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,Studios,AlbumArtist,Artists,Album,IndexNumber,SeriesName&SortBy=SortName&SortOrder=Ascending&Limit={totalCount}";
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         ApplyAuthorizationHeader(request, connection.AccessToken);
+        progress?.Report(new JellyfinSyncProgress($"Fetching Jellyfin {label} items…", 0, totalCount));
         using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         JsonObject root = JsonObject.Parse(await response.Content.ReadAsStringAsync());
         JsonArray items = root.GetNamedArray("Items", new JsonArray());
-        progress?.Report($"Processing {items.Count} Jellyfin {label} items…");
+        totalCount = Math.Max(totalCount, (int)root.GetNamedNumber("TotalRecordCount", items.Count));
+        progress?.Report(new JellyfinSyncProgress($"Processing {items.Count} Jellyfin {label} items…", 0, totalCount));
         List<MediaViewModel> result = new(items.Count);
         foreach (IJsonValue value in items)
         {
@@ -137,12 +141,24 @@ public sealed class JellyfinService : IJellyfinService
             if (item != null)
             {
                 result.Add(item);
-                if (result.Count % 100 == 0) progress?.Report($"Processed {result.Count} of {items.Count} Jellyfin {label} items…");
+                if (result.Count % 25 == 0) progress?.Report(new JellyfinSyncProgress($"Processed {result.Count} of {totalCount} Jellyfin {label} items…", result.Count, totalCount));
             }
         }
 
-        progress?.Report($"Loaded {result.Count} Jellyfin {label} items.");
+        progress?.Report(new JellyfinSyncProgress($"Loaded {result.Count} Jellyfin {label} items.", result.Count, totalCount));
         return result;
+    }
+
+    private async Task<int> FetchItemCountAsync(JellyfinConnection connection, string includeItemTypes, CancellationToken cancellationToken)
+    {
+        string url = $"{connection.ServerUrl}/Users/{connection.UserId}/Items?Recursive=true&IncludeItemTypes={Uri.EscapeDataString(includeItemTypes)}&Fields=BasicSyncInfo&Limit=0";
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        ApplyAuthorizationHeader(request, connection.AccessToken);
+        using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        JsonObject root = JsonObject.Parse(await response.Content.ReadAsStringAsync());
+        return (int)root.GetNamedNumber("TotalRecordCount", 0);
     }
 
     private MediaViewModel? MapItem(JellyfinConnection connection, JsonObject item)

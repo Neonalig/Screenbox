@@ -208,6 +208,7 @@
     <Compile Include="Models\MediaLastPosition.cs" />
     <Compile Include="Models\JellyfinConnection.cs" />
     <Compile Include="Models\JellyfinMediaSource.cs" />
+    <Compile Include="Models\JellyfinSyncProgress.cs" />
     <Compile Include="Models\MusicInfo.cs" />
     <Compile Include="Models\MusicLibrary.cs" />
     <Compile Include="Models\PersistentPlaylist.cs" />
