@@ -63,6 +63,9 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     [ObservableProperty] private string _jellyfinStatusText;
     [ObservableProperty] private string _jellyfinSyncStatusText;
     [ObservableProperty] private bool _isJellyfinSettingsExpanded;
+    [ObservableProperty] private double _jellyfinSyncProgressValue;
+    [ObservableProperty] private double _jellyfinSyncProgressMaximum;
+    [ObservableProperty] private bool _isJellyfinSyncIndeterminate;
 
     public ObservableCollection<StorageFolder> MusicLocations { get; }
 
@@ -163,6 +166,9 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         _jellyfinStatusText = GetJellyfinConnectionStatusText();
         _jellyfinSyncStatusText = _jellyfinService.LastSyncStatus;
         _isJellyfinSettingsExpanded = false;
+        _jellyfinSyncProgressValue = 0;
+        _jellyfinSyncProgressMaximum = 1;
+        _isJellyfinSyncIndeterminate = false;
         int maxVolume = _settingsService.MaxVolume;
         _volumeBoost = maxVolume switch
         {
@@ -479,6 +485,7 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     [RelayCommand(CanExecute = nameof(CanDisconnectJellyfin))]
     private void DisconnectJellyfin()
     {
+        LogService.Log("Disconnecting Jellyfin from settings page.");
         _jellyfinService.Disconnect();
         IsJellyfinConnected = false;
         JellyfinPassword = string.Empty;
@@ -487,6 +494,9 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         JellyfinStatusText = GetJellyfinConnectionStatusText();
         JellyfinSyncStatusText = "Not connected";
         _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
+        JellyfinSyncProgressValue = 0;
+        JellyfinSyncProgressMaximum = 1;
+        IsJellyfinSyncIndeterminate = false;
     }
 
     [RelayCommand(CanExecute = nameof(CanSyncJellyfinLibraries))]
@@ -501,6 +511,8 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         {
             LogService.Log(e);
             JellyfinSyncStatusText = $"Sync failed: {e.Message}";
+            _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
+            IsJellyfinSyncIndeterminate = false;
         }
         finally
         {
@@ -510,31 +522,51 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
 
     private async Task SyncJellyfinLibrariesCoreAsync()
     {
-        if (!_jellyfinService.IsConnected) return;
+        if (!_jellyfinService.IsConnected)
+        {
+            JellyfinSyncStatusText = "Jellyfin is not connected. Connect again before syncing.";
+            _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
+            LogService.Log("Jellyfin sync requested but no configured connection was available.");
+            return;
+        }
+
+        LogService.Log("Starting Jellyfin library sync.");
         _libraryContext.IsLoadingMusic = true;
         _libraryContext.IsLoadingVideos = true;
         var progress = new Progress<JellyfinSyncProgress>(report =>
         {
             JellyfinSyncStatusText = report.Message;
             _jellyfinService.LastSyncStatus = report.Message;
+            JellyfinSyncProgressMaximum = Math.Max(1, report.TotalCount);
+            JellyfinSyncProgressValue = Math.Min(report.ProcessedCount, JellyfinSyncProgressMaximum);
+            IsJellyfinSyncIndeterminate = report.TotalCount <= 0 || report.ProcessedCount <= 0;
         });
         JellyfinSyncStatusText = "Starting Jellyfin sync…";
         _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
+        JellyfinSyncProgressValue = 0;
+        JellyfinSyncProgressMaximum = 1;
+        IsJellyfinSyncIndeterminate = true;
         try
         {
             MusicLibrary music = await _jellyfinService.FetchMusicAsync(progress);
             JellyfinSyncStatusText = $"Merging {music.Songs.Count} Jellyfin songs…";
+            LogService.Log(JellyfinSyncStatusText);
             _libraryContext.Music = MergeMusic(_libraryContext.Music, music);
             VideosLibrary videos = await _jellyfinService.FetchVideosAsync(progress);
             JellyfinSyncStatusText = $"Merging {videos.Videos.Count} Jellyfin videos…";
+            LogService.Log(JellyfinSyncStatusText);
             _libraryContext.Videos = MergeVideos(_libraryContext.Videos, videos);
             JellyfinSyncStatusText = $"Sync complete. Added {music.Songs.Count} songs and {videos.Videos.Count} videos from Jellyfin.";
             _jellyfinService.LastSyncStatus = JellyfinSyncStatusText;
+            JellyfinSyncProgressValue = JellyfinSyncProgressMaximum;
+            IsJellyfinSyncIndeterminate = false;
+            LogService.Log(JellyfinSyncStatusText);
         }
         finally
         {
             _libraryContext.IsLoadingMusic = false;
             _libraryContext.IsLoadingVideos = false;
+            LogService.Log("Finished Jellyfin library sync.");
         }
     }
 

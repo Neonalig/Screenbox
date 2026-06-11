@@ -238,7 +238,10 @@
                         <ctc:SettingsCard ContentAlignment="Left">
                             <StackPanel Spacing="8">
                                 <Button Command="{x:Bind ViewModel.SyncJellyfinLibrariesCommand}" Content="Sync libraries" />
-                                <ProgressBar IsIndeterminate="{x:Bind ViewModel.IsJellyfinBusy, Mode=OneWay}" />
+                                <ProgressBar
+                                    IsIndeterminate="{x:Bind ViewModel.IsJellyfinSyncIndeterminate, Mode=OneWay}"
+                                    Maximum="{x:Bind ViewModel.JellyfinSyncProgressMaximum, Mode=OneWay}"
+                                    Value="{x:Bind ViewModel.JellyfinSyncProgressValue, Mode=OneWay}" />
                                 <TextBlock Text="{x:Bind ViewModel.JellyfinSyncStatusText, Mode=OneWay}" TextWrapping="Wrap" />
                             </StackPanel>
                         </ctc:SettingsCard>

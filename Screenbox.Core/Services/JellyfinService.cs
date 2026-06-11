@@ -24,6 +24,7 @@ public sealed class JellyfinService : IJellyfinService
     private readonly ISettingsService _settingsService;
     private readonly MediaViewModelFactory _mediaFactory;
     private readonly HttpClient _httpClient = new();
+    private JellyfinConnection? _sessionConnection;
 
     public JellyfinService(ISettingsService settingsService, MediaViewModelFactory mediaFactory)
     {
@@ -37,7 +38,14 @@ public sealed class JellyfinService : IJellyfinService
 
     public JellyfinConnection GetConnection()
     {
-        return new JellyfinConnection(_settingsService.JellyfinServerUrl, _settingsService.JellyfinAccessToken, _settingsService.JellyfinUserId, _settingsService.JellyfinDeviceId);
+        JellyfinConnection settingsConnection = new(_settingsService.JellyfinServerUrl, _settingsService.JellyfinAccessToken, _settingsService.JellyfinUserId, _settingsService.JellyfinDeviceId);
+        if (settingsConnection.IsConfigured)
+        {
+            _sessionConnection = settingsConnection;
+            return settingsConnection;
+        }
+
+        return _sessionConnection ?? settingsConnection;
     }
 
     public async Task<bool> AuthenticateAsync(string serverUrl, string username, string password, CancellationToken cancellationToken = default)
@@ -61,21 +69,29 @@ public sealed class JellyfinService : IJellyfinService
         _settingsService.JellyfinUsername = username;
         _settingsService.JellyfinUserId = userId;
         _settingsService.JellyfinAccessToken = token;
+        _sessionConnection = new JellyfinConnection(serverUrl, token, userId, _settingsService.JellyfinDeviceId);
+        LogService.Log($"Jellyfin authentication succeeded for user '{username}' at '{serverUrl}'.");
         return true;
     }
 
     public void Disconnect()
     {
+        _sessionConnection = null;
         _settingsService.JellyfinServerUrl = string.Empty;
         _settingsService.JellyfinUsername = string.Empty;
         _settingsService.JellyfinAccessToken = string.Empty;
         _settingsService.JellyfinUserId = string.Empty;
+        LogService.Log("Jellyfin disconnected.");
     }
 
     public async Task<MusicLibrary> FetchMusicAsync(IProgress<JellyfinSyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var connection = GetConnection();
-        if (!connection.IsConfigured) return MusicLibrary.Empty;
+        if (!connection.IsConfigured)
+        {
+            LogService.Log("Skipping Jellyfin music fetch because the connection is not configured.");
+            return MusicLibrary.Empty;
+        }
 
         List<MediaViewModel> songs = await FetchItemsAsync(connection, "Audio", "music", progress, cancellationToken);
         var albumFactory = new AlbumViewModelFactory();
@@ -95,7 +111,11 @@ public sealed class JellyfinService : IJellyfinService
     public async Task<VideosLibrary> FetchVideosAsync(IProgress<JellyfinSyncProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var connection = GetConnection();
-        if (!connection.IsConfigured) return VideosLibrary.Empty;
+        if (!connection.IsConfigured)
+        {
+            LogService.Log("Skipping Jellyfin video fetch because the connection is not configured.");
+            return VideosLibrary.Empty;
+        }
 
         List<MediaViewModel> videos = await FetchItemsAsync(connection, "Movie,Episode,Video", "video", progress, cancellationToken);
         foreach (MediaViewModel video in videos) video.IsFromLibrary = true;
@@ -120,13 +140,16 @@ public sealed class JellyfinService : IJellyfinService
     private async Task<List<MediaViewModel>> FetchItemsAsync(JellyfinConnection connection, string includeItemTypes, string label, IProgress<JellyfinSyncProgress>? progress, CancellationToken cancellationToken)
     {
         progress?.Report(new JellyfinSyncProgress($"Requesting Jellyfin {label} item count…"));
+        LogService.Log($"Requesting Jellyfin {label} item count from '{connection.ServerUrl}'.");
         int totalCount = await FetchItemCountAsync(connection, includeItemTypes, cancellationToken);
         progress?.Report(new JellyfinSyncProgress($"Jellyfin reports {totalCount} {label} items.", 0, totalCount));
+        LogService.Log($"Jellyfin reports {totalCount} {label} items.");
         string url = $"{connection.ServerUrl}/Users/{connection.UserId}/Items?Recursive=true&IncludeItemTypes={Uri.EscapeDataString(includeItemTypes)}&Fields=DateCreated,Genres,MediaSources,Overview,ParentId,PrimaryImageAspectRatio,ProductionYear,RunTimeTicks,Studios,AlbumArtist,Artists,Album,IndexNumber,SeriesName&SortBy=SortName&SortOrder=Ascending&Limit={totalCount}";
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         ApplyAuthorizationHeader(request, connection.AccessToken);
         progress?.Report(new JellyfinSyncProgress($"Fetching Jellyfin {label} items…", 0, totalCount));
         using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken);
+        LogService.Log($"Jellyfin {label} item request returned {(int)response.StatusCode} {response.ReasonPhrase}.");
         response.EnsureSuccessStatusCode();
 
         JsonObject root = JsonObject.Parse(await response.Content.ReadAsStringAsync());
@@ -146,6 +169,7 @@ public sealed class JellyfinService : IJellyfinService
         }
 
         progress?.Report(new JellyfinSyncProgress($"Loaded {result.Count} Jellyfin {label} items.", result.Count, totalCount));
+        LogService.Log($"Loaded {result.Count} Jellyfin {label} items.");
         return result;
     }
 
