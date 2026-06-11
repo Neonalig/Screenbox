@@ -16,6 +16,7 @@ using Screenbox.Core.Helpers;
 using Screenbox.Core.Messages;
 using Screenbox.Core.Models;
 using Screenbox.Core.Services;
+using Screenbox.Core.Factories;
 using Windows.Devices.Enumeration;
 using Windows.Globalization;
 using Windows.Storage;
@@ -54,6 +55,11 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     [ObservableProperty] private bool _isRelaunchRequired;
     [ObservableProperty] private int _selectedLanguage;
     [ObservableProperty] private bool _persistPlaybackPosition;
+    [ObservableProperty] private string _jellyfinServerUrl;
+    [ObservableProperty] private string _jellyfinUsername;
+    [ObservableProperty] private string _jellyfinPassword;
+    [ObservableProperty] private bool _isJellyfinConnected;
+    [ObservableProperty] private bool _isJellyfinBusy;
 
     public ObservableCollection<StorageFolder> MusicLocations { get; }
 
@@ -76,6 +82,7 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     private readonly DispatcherQueueTimer _storageDeviceRefreshTimer;
     private readonly DeviceWatcher? _portableStorageDeviceWatcher;
     private readonly ILastPositionTracker _lastPositionTracker;
+    private readonly IJellyfinService _jellyfinService;
     private static InitialValues? _initialValues;
     private StorageLibrary? _videosLibrary;
     private StorageLibrary? _musicLibrary;
@@ -92,12 +99,14 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         ISettingsService settingsService,
         LibraryContext libraryContext,
         ILibraryCoordinator libraryCoordinator,
-        ILastPositionTracker lastPositionTracker)
+        ILastPositionTracker lastPositionTracker,
+        IJellyfinService jellyfinService)
     {
         _settingsService = settingsService;
         _libraryContext = libraryContext;
         _libraryCoordinator = libraryCoordinator;
         _lastPositionTracker = lastPositionTracker;
+        _jellyfinService = jellyfinService;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _storageDeviceRefreshTimer = _dispatcherQueue.CreateTimer();
         MusicLocations = new ObservableCollection<StorageFolder>();
@@ -144,6 +153,10 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
         _useMultipleInstances = _settingsService.UseMultipleInstances;
         _videoUpscaling = (int)_settingsService.VideoUpscale;
         _globalArguments = _settingsService.GlobalArguments;
+        _jellyfinServerUrl = _settingsService.JellyfinServerUrl;
+        _jellyfinUsername = string.Empty;
+        _jellyfinPassword = string.Empty;
+        _isJellyfinConnected = _jellyfinService.IsConnected;
         int maxVolume = _settingsService.MaxVolume;
         _volumeBoost = maxVolume switch
         {
@@ -367,6 +380,82 @@ public sealed partial class SettingsPageViewModel : ObservableRecipient
     {
         _settingsService.PersistPlaybackPosition = value;
         Messenger.Send(new SettingsChangedMessage(nameof(PersistPlaybackPosition), typeof(SettingsPageViewModel)));
+    }
+
+    [RelayCommand]
+    private async Task ConnectJellyfinAsync()
+    {
+        if (IsJellyfinBusy) return;
+        IsJellyfinBusy = true;
+        try
+        {
+            IsJellyfinConnected = await _jellyfinService.AuthenticateAsync(JellyfinServerUrl, JellyfinUsername, JellyfinPassword);
+            if (IsJellyfinConnected)
+            {
+                JellyfinPassword = string.Empty;
+                await SyncJellyfinLibrariesAsync();
+            }
+        }
+        catch (Exception e)
+        {
+            LogService.Log(e);
+            IsJellyfinConnected = false;
+        }
+        finally
+        {
+            IsJellyfinBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void DisconnectJellyfin()
+    {
+        _jellyfinService.Disconnect();
+        IsJellyfinConnected = false;
+    }
+
+    [RelayCommand]
+    private async Task SyncJellyfinLibrariesAsync()
+    {
+        if (!_jellyfinService.IsConnected || IsJellyfinBusy) return;
+        IsJellyfinBusy = true;
+        try
+        {
+            MusicLibrary music = await _jellyfinService.FetchMusicAsync();
+            VideosLibrary videos = await _jellyfinService.FetchVideosAsync();
+            _libraryContext.Music = MergeMusic(_libraryContext.Music, music);
+            _libraryContext.Videos = MergeVideos(_libraryContext.Videos, videos);
+        }
+        catch (Exception e)
+        {
+            LogService.Log(e);
+        }
+        finally
+        {
+            IsJellyfinBusy = false;
+        }
+    }
+
+    private static MusicLibrary MergeMusic(MusicLibrary local, MusicLibrary remote)
+    {
+        if (remote.Songs.Count == 0) return local;
+        var songs = local.Songs.Concat(remote.Songs).ToList();
+        var albumFactory = new AlbumViewModelFactory();
+        var artistFactory = new ArtistViewModelFactory();
+        foreach (var song in songs)
+        {
+            albumFactory.AddSong(song);
+            artistFactory.AddSong(song);
+            song.Album = albumFactory.SongsToAlbums[song];
+            song.Artists = artistFactory.SongsToArtists[song].ToArray();
+        }
+
+        return new MusicLibrary(songs, albumFactory.Albums, artistFactory.Artists, albumFactory.UnknownAlbum, artistFactory.UnknownArtist);
+    }
+
+    private static VideosLibrary MergeVideos(VideosLibrary local, VideosLibrary remote)
+    {
+        return remote.Videos.Count == 0 ? local : new VideosLibrary(local.Videos.Concat(remote.Videos).ToList());
     }
 
     [RelayCommand]

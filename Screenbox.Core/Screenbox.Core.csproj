@@ -206,6 +206,8 @@
     <Compile Include="Models\LanguageInfo.cs" />
     <Compile Include="Models\MediaInfo.cs" />
     <Compile Include="Models\MediaLastPosition.cs" />
+    <Compile Include="Models\JellyfinConnection.cs" />
+    <Compile Include="Models\JellyfinMediaSource.cs" />
     <Compile Include="Models\MusicInfo.cs" />
     <Compile Include="Models\MusicLibrary.cs" />
     <Compile Include="Models\PersistentPlaylist.cs" />
@@ -240,6 +242,8 @@
     <Compile Include="Services\FilesService.cs" />
     <Compile Include="Services\ICastService.cs" />
     <Compile Include="Services\IFilesService.cs" />
+    <Compile Include="Services\IJellyfinPlaybackReporter.cs" />
+    <Compile Include="Services\IJellyfinService.cs" />
     <Compile Include="Services\ILibraryService.cs" />
     <Compile Include="Factories\IMediaListFactory.cs" />
     <Compile Include="Factories\IPlaylistViewModelFactory.cs" />
@@ -257,6 +261,8 @@
     <Compile Include="Coordinators\LibraryCoordinator.cs" />
     <Compile Include="Coordinators\IPlayQueueCoordinator.cs" />
     <Compile Include="Coordinators\PlayQueueCoordinator.cs" />
+    <Compile Include="Services\JellyfinPlaybackReporter.cs" />
+    <Compile Include="Services\JellyfinService.cs" />
     <Compile Include="Services\LibraryService.cs" />
     <Compile Include="Services\LogService.cs" />
     <Compile Include="Factories\MediaListFactory.cs" />
@@ -333,6 +339,9 @@
     </PackageReference>
     <PackageReference Include="LibVLCSharp">
       <Version>3.7.0</Version>
+    </PackageReference>
+    <PackageReference Include="Jellyfin.Sdk">
+      <Version>2021.11.20</Version>
     </PackageReference>
     <PackageReference Include="protobuf-net">
       <Version>3.2.30</Version>

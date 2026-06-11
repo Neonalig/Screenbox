@@ -55,6 +55,7 @@ public sealed partial class PlayerElementViewModel : ObservableRecipient,
     private readonly IPlayerService _playerService;
     private readonly ISystemMediaTransportControlsService _transportControlsService;
     private readonly ISettingsService _settingsService;
+    private readonly IJellyfinPlaybackReporter _jellyfinPlaybackReporter;
     private readonly DispatcherQueue _dispatcherQueue;
     private readonly DispatcherQueueTimer _clickTimer;
     private readonly DispatcherQueueTimer _pointerWheelTimer;
@@ -81,12 +82,14 @@ public sealed partial class PlayerElementViewModel : ObservableRecipient,
         PlayerContext playerContext,
         IPlayerService playerService,
         ISettingsService settingsService,
-        ISystemMediaTransportControlsService transportControlsService)
+        ISystemMediaTransportControlsService transportControlsService,
+        IJellyfinPlaybackReporter jellyfinPlaybackReporter)
     {
         _playerContext = playerContext;
         _playerService = playerService;
         _settingsService = settingsService;
         _transportControlsService = transportControlsService;
+        _jellyfinPlaybackReporter = jellyfinPlaybackReporter;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _clickTimer = _dispatcherQueue.CreateTimer();
         _pointerWheelTimer = _dispatcherQueue.CreateTimer();
@@ -123,6 +126,7 @@ public sealed partial class PlayerElementViewModel : ObservableRecipient,
             oldPlayer.PositionChanged -= OnPositionChanged;
             oldPlayer.MediaFailed -= OnMediaFailed;
             oldPlayer.PlaybackItemChanged -= OnPlaybackItemChanged;
+            _jellyfinPlaybackReporter.Detach(oldPlayer);
             VlcMediaPlayer = null;
         }
 
@@ -193,6 +197,7 @@ public sealed partial class PlayerElementViewModel : ObservableRecipient,
                 player.PositionChanged += OnPositionChanged;
                 player.MediaFailed += OnMediaFailed;
                 player.PlaybackItemChanged += OnPlaybackItemChanged;
+                _jellyfinPlaybackReporter.Attach(player);
 
                 initException?.Throw();
             }

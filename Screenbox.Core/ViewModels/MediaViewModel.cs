@@ -149,6 +149,15 @@ public partial class MediaViewModel : ObservableRecipient
         _name = uri.Segments.Length > 0 ? Uri.UnescapeDataString(uri.Segments.Last()) : string.Empty;
     }
 
+    public MediaViewModel(PlayerContext playerContext, IPlayerService playerService, JellyfinMediaSource source, MediaInfo mediaInfo)
+        : this(source, mediaInfo, playerContext, playerService)
+    {
+        Location = source.Location;
+        _name = source.Name;
+        _altCaption = source.Name;
+        DetailsLoaded = true;
+    }
+
     public MediaViewModel(PlayerContext playerContext, IPlayerService playerService, Media media)
         : this(media, new MediaInfo(MediaPlaybackType.Unknown), playerContext, playerService)
     {

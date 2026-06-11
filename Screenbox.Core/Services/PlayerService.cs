@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using LibVLCSharp.Shared;
+using Screenbox.Core.Models;
 using Screenbox.Core.Playback;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
@@ -79,6 +80,7 @@ public sealed class PlayerService : IPlayerService
         return source switch
         {
             IStorageFile file => CreateMedia(player, file, options),
+            JellyfinMediaSource jellyfinSource => CreateMedia(player, jellyfinSource.StreamUri, options),
             string str => CreateMedia(player, str, options),
             Uri uri => CreateMedia(player, uri, options),
             _ => throw new ArgumentOutOfRangeException(nameof(source))

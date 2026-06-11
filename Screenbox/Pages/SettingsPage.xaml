@@ -204,6 +204,37 @@
 
                 <ctc:SettingsExpander
                     Margin="{StaticResource SettingsCardMargin}"
+                    Description="Connect to a Jellyfin server and synchronize remote music and video libraries into Screenbox."
+                    Header="Jellyfin"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE968;}">
+                    <interactivity:Interaction.Behaviors>
+                        <behaviors:SettingsExpanderXYNavigationBehavior />
+                    </interactivity:Interaction.Behaviors>
+                    <StackPanel Spacing="8">
+                        <TextBox
+                            MinWidth="320"
+                            Header="Server address"
+                            PlaceholderText="https://jellyfin.example.com"
+                            Text="{x:Bind ViewModel.JellyfinServerUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox
+                            MinWidth="320"
+                            Header="Username"
+                            Text="{x:Bind ViewModel.JellyfinUsername, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <PasswordBox
+                            MinWidth="320"
+                            Header="Password"
+                            Password="{x:Bind ViewModel.JellyfinPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.ConnectJellyfinCommand}" Content="Connect" />
+                            <Button Command="{x:Bind ViewModel.SyncJellyfinLibrariesCommand}" Content="Sync libraries" />
+                            <Button Command="{x:Bind ViewModel.DisconnectJellyfinCommand}" Content="Disconnect" />
+                        </StackPanel>
+                        <TextBlock Text="{x:Bind ViewModel.IsJellyfinConnected, Mode=OneWay}" />
+                    </StackPanel>
+                </ctc:SettingsExpander>
+
+                <ctc:SettingsExpander
+                    Margin="{StaticResource SettingsCardMargin}"
                     Description="{x:Bind strings:Resources.LocationSpecified(ViewModel.VideoLocations.Count), Mode=OneWay, FallbackValue={x:Null}}"
                     Header="{strings:Resources Key=SettingsVideoLibraryLocationsHeader}"
                     ItemTemplate="{StaticResource VideosLibraryLocationTemplate}"

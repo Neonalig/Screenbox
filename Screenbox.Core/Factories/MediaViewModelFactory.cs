@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LibVLCSharp.Shared;
 using Screenbox.Core.Contexts;
+using Screenbox.Core.Models;
 using Screenbox.Core.Playback;
 using Screenbox.Core.Services;
 using Windows.Storage;
@@ -40,6 +41,11 @@ public sealed class MediaViewModelFactory
     public MediaViewModel Create(Uri uri)
     {
         return new MediaViewModel(_playerContext, _playerService, uri);
+    }
+
+    public MediaViewModel Create(JellyfinMediaSource source, MediaInfo mediaInfo)
+    {
+        return new MediaViewModel(_playerContext, _playerService, source, mediaInfo);
     }
 
     /// <summary>

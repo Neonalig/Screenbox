@@ -24,6 +24,10 @@ public interface ISettingsService
     bool UseMultipleInstances { get; set; }
     string LivelyActivePath { get; set; }
     MediaPlaybackAutoRepeatMode PersistentRepeatMode { get; set; }
+    string JellyfinServerUrl { get; set; }
+    string JellyfinAccessToken { get; set; }
+    string JellyfinUserId { get; set; }
+    string JellyfinDeviceId { get; set; }
 
     /// <summary>
     /// Gets or sets a value that indicates whether the playback position should be saved

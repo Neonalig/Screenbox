@@ -6,6 +6,7 @@ using Screenbox.Core.Enums;
 using Screenbox.Core.Helpers;
 using Windows.Foundation.Collections;
 using Windows.Media;
+using Windows.Security.Credentials;
 using Windows.Storage;
 
 namespace Screenbox.Core.Services;
@@ -45,6 +46,10 @@ public sealed class SettingsService : ISettingsService
     private const string PlayerGestureSlideVerticalKey = "Player/Gesture/SlideVertical";
     private const string PlayerGestureSlideHorizontalKey = "Player/Gesture/SlideHorizontal";
     private const string PlayerGesturePressAndHoldKey = "Player/Gesture/PressAndHold";
+    private const string JellyfinServerUrlKey = "Jellyfin/ServerUrl";
+    private const string JellyfinUserIdKey = "Jellyfin/UserId";
+    private const string JellyfinDeviceIdKey = "Jellyfin/DeviceId";
+    private const string JellyfinVaultResource = "Screenbox/Jellyfin";
 
     public bool UseIndexer
     {
@@ -226,6 +231,30 @@ public sealed class SettingsService : ISettingsService
         set => SetValue(PlayerGesturePressAndHoldKey, value);
     }
 
+    public string JellyfinServerUrl
+    {
+        get => GetValue<string>(JellyfinServerUrlKey) ?? string.Empty;
+        set => SetValue(JellyfinServerUrlKey, value?.TrimEnd('/') ?? string.Empty);
+    }
+
+    public string JellyfinAccessToken
+    {
+        get => GetPasswordFromVault(JellyfinVaultResource, JellyfinUserId) ?? string.Empty;
+        set => SetPasswordInVault(JellyfinVaultResource, JellyfinUserId, value ?? string.Empty);
+    }
+
+    public string JellyfinUserId
+    {
+        get => GetValue<string>(JellyfinUserIdKey) ?? string.Empty;
+        set => SetValue(JellyfinUserIdKey, value ?? string.Empty);
+    }
+
+    public string JellyfinDeviceId
+    {
+        get => GetValue<string>(JellyfinDeviceIdKey) ?? string.Empty;
+        set => SetValue(JellyfinDeviceIdKey, string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString() : value);
+    }
+
     public SettingsService()
     {
         SetDefault(PlayerAutoResizeKey, (int)PlayerAutoResizeOption.Never);
@@ -253,6 +282,9 @@ public sealed class SettingsService : ISettingsService
         SetDefault(PlayerGestureSlideVerticalKey, true);
         SetDefault(PlayerGestureSlideHorizontalKey, true);
         SetDefault(PlayerGesturePressAndHoldKey, true);
+        SetDefault(JellyfinServerUrlKey, string.Empty);
+        SetDefault(JellyfinUserIdKey, string.Empty);
+        SetDefault(JellyfinDeviceIdKey, Guid.NewGuid().ToString());
 
         // Device family specific overrides
         if (SystemInformation.IsXbox)
@@ -288,6 +320,40 @@ public sealed class SettingsService : ISettingsService
     {
         if (SettingsStorage.ContainsKey(key) && SettingsStorage[key] is T) return;
         SettingsStorage[key] = value;
+    }
+
+    private static string? GetPasswordFromVault(string resource, string userName)
+    {
+        if (string.IsNullOrWhiteSpace(userName)) return null;
+        try
+        {
+            PasswordCredential credential = new PasswordVault().Retrieve(resource, userName);
+            credential.RetrievePassword();
+            return credential.Password;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static void SetPasswordInVault(string resource, string userName, string password)
+    {
+        if (string.IsNullOrWhiteSpace(userName)) return;
+        try
+        {
+            PasswordVault vault = new();
+            foreach (PasswordCredential credential in vault.FindAllByResource(resource).Where(c => c.UserName == userName))
+            {
+                vault.Remove(credential);
+            }
+
+            if (!string.IsNullOrWhiteSpace(password)) vault.Add(new PasswordCredential(resource, userName, password));
+        }
+        catch (Exception)
+        {
+            // Keep non-secret connection state even if PasswordVault is unavailable.
+        }
     }
 
     private static string SanitizeArguments(string raw)
